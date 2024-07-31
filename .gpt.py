@@ -4,8 +4,12 @@ import threading
 from queue import Queue
 from colorama import init, Fore, Back, Style
 from wcwidth import wcwidth
+import pygame
 
 init()
+
+# 初始化 pygame 音频系统
+pygame.mixer.init()
 
 def parse_lrc(lrc_text):
     pattern = re.compile(r'\[(\d{2}):(\d{2}\.\d{2,3})\](.*)')
@@ -55,7 +59,10 @@ def display_lyrics_worker(queue):
         sleep_time = timestamp - (current_time - start_time)
         if sleep_time > 0:
             time.sleep(sleep_time)
+        line_start_time = time.perf_counter()
         display(lyric)
+        display_time = time.perf_counter() - line_start_time
+        start_time += display_time  # Adjust start time to compensate for display execution time
         queue.task_done()
 
 def producer_thread(queue, lyrics):
@@ -65,6 +72,13 @@ def producer_thread(queue, lyrics):
         queue.put((timestamp, lyric))
     queue.put((None, None))  # Signal the consumer thread to stop
 
+def audio_thread(filename, delay):
+    pygame.mixer.music.load(filename)
+    pygame.mixer.music.play()
+    time.sleep(delay)
+    while pygame.mixer.music.get_busy():
+        time.sleep(1)  # Check every second if music is still playing
+
 # 示例 LRC 歌词
 lrc_content = """
 [00:00.00] {しんだ}死んだ{へんすう}変数で{く}繰り{かえ}返す
@@ -72,20 +86,25 @@ lrc_content = """
 [00:10.00] どこに{おく}送るあてもなく
 [00:15.00] {あわ}哀れな{ひと}独り{ごと}言を{しる}記している
 """
-with open("ntij-furigana.lrc") as f:                lrc_content = f.read()                
+
 parsed_lyrics = parse_lrc(lrc_content)
 
 # 创建队列和线程
 queue = Queue()
 display_thread = threading.Thread(target=display_lyrics_worker, args=(queue,))
 producer = threading.Thread(target=producer_thread, args=(queue, parsed_lyrics))
+audio_filename = "your_audio_file.mp3"  # 替换为你的 MP3 文件路径
+audio_delay = 0  # 设置音频播放的延迟时间（秒）
+audio_playback_thread = threading.Thread(target=audio_thread, args=(audio_filename, audio_delay))
 
 # 启动线程
 display_thread.start()
 producer.start()
+audio_playback_thread.start()
 
 # 等待线程完成
 producer.join()
 queue.join()  # 确保队列中的所有项目都已处理
 display_thread.join()
+audio_playback_thread.join()
 
